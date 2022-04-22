@@ -15,9 +15,14 @@
     - key based SSH
 
 # To Do
+    ## Next Up
     - [x] postgres database
-    - [ ] postgres api interface
+    - [x] postgres api interface
+    - [ ] add new test cases and suite
+    - [ ] split test lib from test definitions
     - [ ] django interface
+
+    ## Long Term
     - [ ] security hardening
 
 # Network Improvments
