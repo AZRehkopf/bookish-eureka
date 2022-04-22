@@ -5,19 +5,33 @@
 
 # Buit-ins
 from distutils.log import error
+import json
 import sys
 import os
-import timeit
+
+# Local
+from tester.tester import Test, TestSuit, Regression
 
 # Third Party
 import requests
 
 ### Constants ###
+
 DEBUG = False
 SERVER_HOSTNAME = 'plutus.local'
 SERVER_PORT = 8765
 
 ### Functions ###
+
+def test_get(**kwargs):
+    r = requests.get(f'http://{SERVER_HOSTNAME}:{SERVER_PORT}/{kwargs["target"]}')
+    if DEBUG:
+        print(r.status_code)
+    
+    if r.status_code == kwargs['expected']:
+        return True
+    else:
+        return False
 
 def test_json_post(**kwargs):
     r = requests.post(f'http://{SERVER_HOSTNAME}:{SERVER_PORT}/{kwargs["target"]}', json=kwargs['payload'])
@@ -38,129 +52,77 @@ def test_json_post(**kwargs):
     else:
         return False
 
-### Classes ###
-
-class TermColors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
-
-
-class Test:
-    def __init__(self, func, args, name):
-        self.tf = func
-        self.args = args
-        self.name = name
-
-        self.result = None
-        self.exception = None
+def test_b2b_json_post(**kwargs):
+    r = requests.post(f'http://{SERVER_HOSTNAME}:{SERVER_PORT}/{kwargs["target"]}', json=kwargs['payload'])
+    resp_data = r.content.decode('utf-8')
     
-    def run(self):
-        print(f"Running test {self.name}... ", end="")
-        
-        try:
-            self.result = self.tf(**self.args)
-        except Exception as error: 
-            self.exception = error
-
-        self.print_result()
-
-    def print_result(self):
-        if self.exception == None:
-            if self.result:
-                print(f"{TermColors.OKGREEN}PASS{TermColors.ENDC}")
-            else:
-                print(f"{TermColors.FAIL}FAIL{TermColors.ENDC}")
+    if DEBUG:
+        print(r.status_code)
+        print(resp_data)
+    
+    if r.status_code == kwargs['expected'][0]:
+        if kwargs['empty_resp'][0] and resp_data == "":
+            pass
+        elif not kwargs['empty_resp'][0] and resp_data != "":
+            pass
         else:
-            print(f"{TermColors.FAIL}ERROR{TermColors.ENDC}")
-            print(self.exception)
+            return False
+    else:
+        return False
 
+    resp_data = json.loads(resp_data)[0][0]
+    r = requests.post(
+        f'http://{SERVER_HOSTNAME}:{SERVER_PORT}/{kwargs["target"]}', 
+        json={
+            'method': 'DELETE',
+            'db': 'cleaning',
+            'id': resp_data
+        }
+    )
+    resp_data = r.content.decode('utf-8')
 
-class TestSuit:
-    def __init__(self, name):
-        self.name = name
-        self.passes = 0
-        self.tests = []
+    if DEBUG:
+        print(r.status_code)
+        print(resp_data)
 
-    def add_test(self, test):
-        self.tests.append(test)
-
-    def add_tests(self, tests):
-        self.tests.extend(tests)
-
-    def run(self):
-        print(f"{TermColors.BOLD}Starting {self.name} Suite {TermColors.ENDC}\n")
-        for test in self.tests:
-            test.run()
-            if test.result: self.passes += 1
-
-        self.print_results()
-
-    def print_results(self):
-        print(f"\n{TermColors.BOLD}Finshed all ({len(self.tests)}) tests in {self.name} suite")
-        percent_pass = round(self.passes/len(self.tests), 2) * 100
-        if percent_pass == 100:
-            print(f"{TermColors.BOLD}{TermColors.OKGREEN}{percent_pass}%{TermColors.ENDC}{TermColors.BOLD} ({self.passes}/{len(self.tests)}) of tests are passing{TermColors.ENDC}\n")
-        elif percent_pass >= 50:
-            print(f"{TermColors.BOLD}{TermColors.WARNING}{percent_pass}%{TermColors.ENDC}{TermColors.BOLD} ({self.passes}/{len(self.tests)}) of tests are passing{TermColors.ENDC}\n")
+    if r.status_code == kwargs['expected'][1]:
+        if kwargs['empty_resp'][1] and resp_data == "":
+            return True
+        elif not kwargs['empty_resp'][1] and resp_data != "":
+            return True
         else:
-            print(f"{TermColors.BOLD}{TermColors.FAIL}{percent_pass}%{TermColors.ENDC}{TermColors.BOLD} ({self.passes}/{len(self.tests)}) of tests are passing{TermColors.ENDC}\n")
-        
-
-class Regression:
-    def __init__(self, name):
-        self.suites = []
-        self.suite_times = {}
-        self.tests = 0
-        self.passes = 0
-        self.name = name
-
-    def add_suite(self, suite):
-        self.suites.append(suite)
-
-    def run(self):
-        print(f"{TermColors.BOLD}{TermColors.HEADER}--- Starting {self.name} Regression ---{TermColors.ENDC}{TermColors.ENDC}\n")
-        
-        self.start = timeit.default_timer()
-        
-        for suite in self.suites:
-            suite_start = timeit.default_timer()
-            suite.run()
-            suite_end = timeit.default_timer()
-            
-            self.suite_times[suite.name] = round(suite_end - suite_start, 4)
-            self.passes += suite.passes
-            self.tests += len(suite.tests)
-
-        self.stop = timeit.default_timer()
-
-        self.print_results()
-
-    def print_results(self):
-        for key in self.suite_times.keys():
-            print(f"Suite {key}: {self.suite_times[key]} sec.")
-        print(f"{TermColors.BOLD}--- Finshed all ({len(self.suites)}) test suites in {round(self.stop - self.start, 4)} sec.{TermColors.ENDC} ---")
-        
-        percent_pass = round(self.passes/self.tests, 2) * 100
-        if percent_pass == 100:
-            print(f"\n{TermColors.BOLD}{TermColors.OKGREEN}{percent_pass}%{TermColors.ENDC}{TermColors.BOLD} ({self.passes}/{self.tests}) of total tests are passing{TermColors.ENDC}")
-        elif percent_pass >= 50:
-            print(f"\n{TermColors.BOLD}{TermColors.WARNING}{percent_pass}%{TermColors.ENDC}{TermColors.BOLD} ({self.passes}/{self.tests}) of total are passing{TermColors.ENDC}")
-        else:
-            print(f"\n{TermColors.BOLD}{TermColors.FAIL}{percent_pass}%{TermColors.ENDC}{TermColors.BOLD} ({self.passes}/{self.tests}) of total are passing{TermColors.ENDC}")
-        
-        print(f"{TermColors.BOLD}{TermColors.HEADER}--- End of Regression ---{TermColors.ENDC}{TermColors.ENDC}\n")
-
-
+            return False
+    else:
+        return False
+    
 ### Main ###
 
 if __name__ == '__main__':
+    stat_suite = TestSuit('System Status')
+    stat_suite.add_tests(
+        [
+            Test(
+                test_get, 
+                {
+                    'target': 'status', 
+                    'expected': 200,
+                },
+                "get_status"
+            ),
+            Test(
+                test_json_post, 
+                {
+                    'target': 'status', 
+                    'expected': 405,
+                    'empty_resp': False,
+                    'payload': {},
+
+                },
+                "bad_method_status"
+            ),
+        ]
+    )
+    
     db_suite = TestSuit('Data Manipulation')
     db_suite.add_tests(
         [
@@ -196,6 +158,41 @@ if __name__ == '__main__':
                     'empty_resp': False
                 },
                 "post_valid_put_data"
+            ),
+            Test(
+                test_json_post, 
+                {
+                    'target': 'data', 
+                    'payload': {
+                        'method': 'PUT',
+                        'db': 'cleaning',
+                        'data': {
+                        }
+                    }, 
+                    'expected': 400,
+                    'empty_resp': True
+                },
+                "post_missing_put_data"
+            ),
+            Test(
+                test_b2b_json_post, 
+                {
+                    'target': 'data', 
+                    'payload': {
+                        'method': 'PUT',
+                        'db': 'cleaning',
+                        'data': {
+                            'name': 'Test Dummy',
+                            'size': 'Boat load',
+                            'location': 'uranus',
+                            'stock': 4,
+                            'target': -90
+                        }
+                    }, 
+                    'expected': [200, 200],
+                    'empty_resp': [False, True]
+                },
+                "post_valid_del_data"
             ),
             Test(
                 test_json_post, 
@@ -240,5 +237,6 @@ if __name__ == '__main__':
     )
     
     him_regr = Regression("House Inventory Mangement API")
+    him_regr.add_suite(stat_suite)
     him_regr.add_suite(db_suite)
     him_regr.run()
