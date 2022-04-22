@@ -105,11 +105,33 @@ class DatabaseEngine:
 
     def on_post(self, req, resp):
         self.connect_to_db()
-        self.logger.info(f"post with {req.media} received")
         
         try:
-            print(req.media['method'])
+            if (req.media['method'] == "GET"):
+                try:
+                    query = f"SELECT * FROM {req.media['db']}"
+                    self.cursor.execute(query)
+                    resp.media = self.cursor.fetchall()
+                except psycopg2.errors.UndefinedTable as error:
+                    self.logger.warning(f"Recieved request for non-exisitent table: {req.media['db']}")
+                    resp.status = falcon.HTTP_BAD_REQUEST
+            elif (req.media['method'] == "PUT"):
+                insert_query = f"INSERT INTO {req.media['db']} VALUES ('{req.media['data']['name']}', '{req.media['data']['size']}', '{req.media['data']['location']}', {req.media['data']['stock']}, {req.media['data']['target']}) RETURNING id;"
+                self.cursor.execute(insert_query)
+                resp.media = self.cursor.fetchall()
+                self.connection.commit()
+            elif (req.media['method'] == "DELETE"):
+                del_query = f"DELETE FROM {req.media['db']} WHERE id={req.media['data']['name']}"
+                self.cursor.execute(del_query)
+                self.connection.commit()
+            else:
+                self.logger.warning(f"Recieved request with bad request type: {req.media['method']}")
+                resp.status = falcon.HTTP_BAD_REQUEST
         except KeyError:
+            self.logger.warning(f"Recieved request with missing paramters")
+            resp.status = falcon.HTTP_BAD_REQUEST
+        except psycopg2.errors.UndefinedTable:
+            self.logger.warning(f"Recieved request for non-exisitent table: {req.media['db']}")
             resp.status = falcon.HTTP_BAD_REQUEST
 
         self.disconnect_from_db()
@@ -126,7 +148,7 @@ class DatabaseEngine:
             self.cursor = self.connection.cursor()
             db_info = self.connection.get_dsn_parameters()
             self.db_name = db_info['dbname']
-            self.logger.info(f"Connected to {self.db_name} as user {db_info['user']} on port {db_info['port']}")
+            self.logger.debug(f"Connected to {self.db_name} as user {db_info['user']} on port {db_info['port']}")
             self.cursor.execute("SELECT version();")
             self.cursor.fetchone()
 
@@ -137,7 +159,7 @@ class DatabaseEngine:
         if (self.connection):
             self.cursor.close()
             self.connection.close()
-            self.logger.info(f"Closed connection to {self.db_name}")
+            self.logger.debug(f"Closed connection to {self.db_name}")
         
 
 ### Main ###
